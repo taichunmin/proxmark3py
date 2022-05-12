@@ -1,0 +1,12 @@
+{
+  "name": "proxmark3py",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "git@github.com:taichunmin/proxmark3py.git",
+  "author": "taichunmin <taichunmin@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "autofix": "python3 -m autopep8 --in-place --recursive .",
+    "lint": "python3 -m pylint --recursive=y ."
+  }
+}
