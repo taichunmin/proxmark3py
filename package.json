@@ -6,7 +6,9 @@
   "author": "taichunmin <taichunmin@gmail.com>",
   "license": "MIT",
   "scripts": {
-    "autofix": "python3 -m autopep8 --in-place --recursive .",
-    "lint": "python3 -m pylint --recursive=y ."
+    "autofix": "python3 -m autopep8 --in-place --recursive --exclude ./examples/proxmark3.py .",
+    "build": "python3 -m build",
+    "lint": "python3 -m pylint --recursive=y .",
+    "upload": "python3 -m twine upload dist/*"
   }
 }

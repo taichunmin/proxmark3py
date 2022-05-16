@@ -1,6 +1,7 @@
 from serial.serialutil import to_bytes
-import serial
 import re
+import serial
+import time
 
 PM3CMD = {
     'ACK': 0x00ff,
@@ -155,9 +156,6 @@ class PacketResponseOLD:
 
 
 class Proxmark3Adapter(serial.Serial):
-    def __init__(self, *args):
-        super().__init__(*args)
-
     def sendCommandNG(self, cmd, data: Packet = None, ng=True):
         if data and not isinstance(data, Packet):
             raise ValueError('data should be Packet')
@@ -199,10 +197,15 @@ class Proxmark3Adapter(serial.Serial):
             return PacketResponseOLD(Packet.merge(pre, self.read(534)))
 
     def waitRespTimeout(self, cmd, timeout=2500):
-        backup = self.get_settings()
-        self.apply_settings({timeout: (timeout + 100) / 1000})
+        ts = {
+            'backup': self.timeout,
+            'end': 0,
+            'start': time.time(),
+        }
+        ts['end'] = ts['start'] + (timeout + 100) / 1000
         try:
             while True:
+                self.timeout = ts['end'] - time.time()
                 resp = self.readResp()
                 if cmd == PM3CMD['UNKNOWN'] or resp.cmd == cmd:
                     return resp
@@ -210,10 +213,9 @@ class Proxmark3Adapter(serial.Serial):
                     wtx = resp.data.get_uint16(0)
                     if wtx >= 0xffff:
                         continue
-                    self.apply_settings(
-                        {timeout: (timeout + wtx + 100) / 1000})
+                    ts['end'] += wtx / 1000
         finally:
-            self.apply_settings(backup)
+            self.timeout = ts['backup']
 
 
 class Proxmark3:
