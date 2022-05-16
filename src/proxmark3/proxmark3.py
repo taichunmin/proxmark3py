@@ -24,19 +24,16 @@ class Packet(bytearray):
         '''String representation of Packet'''
         return '{name}(len={len}): {dump}'.format(name=self.__class__.__name__, len=len(self), dump=' '.join(re.findall(r'.{2}', self.hex())))
 
-    def merge(*bufs):
-        if len(bufs) < 2:
-            return bufs[0] if len(bufs) else Packet()
-        size = sum([len(buf) for buf in bufs])
-        merged = Packet(size)
-        pos = 0
-        for buf in bufs:
-            merged[pos: pos + len(buf)] = buf
-            pos += len(buf)
-        return merged
+    def __add__(self, other):
+        return self.__class__(super().__add__(other))
 
-    def subarray(self, start, end=None):
-        return Packet(self[start: end])
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            return self.__class__(super().__getitem__(key))
+        return super().__getitem__(key)
+
+    def merge(*packets):
+        return Packet(b''.join(packets))
 
     def get_intn(self, offset, little=True, size=1, signed=False):
         return int.from_bytes(
@@ -115,7 +112,7 @@ class PacketResponseNG:
             raise ValueError('packet should be Packet')
         # print(packet)
         self.packet = packet
-        self.data = packet.subarray(10 if self.ng else 34, len(packet) - 2)
+        self.data = packet[10 if self.ng else 34: len(packet) - 2]
 
     def __len__(self):
         return len(self.packet)
@@ -145,7 +142,7 @@ class PacketResponseOLD:
         if not isinstance(packet, Packet):
             raise ValueError('packet should be Packet')
         self.packet = packet
-        self.data = packet.subarray(32)
+        self.data = packet[32:]
 
     @property
     def cmd(self):
@@ -192,9 +189,9 @@ class Proxmark3Adapter(serial.Serial):
             self.open()
         pre = Packet(self.read(10))
         if pre[0:4] == b'PM3b':
-            return PacketResponseNG(Packet.merge(pre, self.read((pre.get_uint16(4) & 0x7fff) + 2)))
+            return PacketResponseNG(pre + self.read((pre.get_uint16(4) & 0x7fff) + 2))
         else:
-            return PacketResponseOLD(Packet.merge(pre, self.read(534)))
+            return PacketResponseOLD(pre + self.read(534))
 
     def waitRespTimeout(self, cmd, timeout=2500):
         ts = {
@@ -225,7 +222,32 @@ class Proxmark3:
     def hf14a_disconnect(self):
         self.adapter.sendCommandMix(PM3CMD['HF_ISO14443A_READER'])
 
-    def mf_eset(self, data: Packet, index, cnt=1, size=16):
+    def mf_rdbl(self, blockNo, keyType, key):
+        if not isinstance(key, Packet):
+            raise ValueError('key should be Packet')
+        if len(key) != 6:
+            raise ValueError('invalid key')
+        self.adapter.reset_input_buffer()
+        self.adapter.sendCommandNG(
+            PM3CMD['HF_MIFARE_READBL'], Packet([blockNo, keyType]) + key)
+        resp = self.adapter.waitRespTimeout(PM3CMD['HF_MIFARE_READBL'])
+        if resp.status:
+            raise Exception('Failed to read block')
+        return resp.data
+
+    def mf_rdsc(self, sectorNo, keyType, key):
+        if not isinstance(key, Packet):
+            raise ValueError('key should be Packet')
+        if len(key) != 6:
+            raise ValueError('invalid key')
+        self.adapter.reset_input_buffer()
+        self.adapter.sendCommandMix(PM3CMD['HF_MIFARE_READSC'], [sectorNo, keyType], key)
+        resp = self.adapter.waitRespTimeout(PM3CMD['ACK'])
+        if not (resp.getArg(0) & 0xff):
+            raise Exception('Failed to read block')
+        return resp.data[:64]
+
+    def mf_eset(self, data: Packet, blockNo, cnt=1, size=16):
         '''
         @see https://github.com/RfidResearchGroup/proxmark3/blob/master/client/src/mifare/mifarehost.c#L866
         '''
@@ -233,19 +255,20 @@ class Proxmark3:
             raise ValueError('data should be Packet')
         if len(data) != cnt * size:
             raise ValueError('invalid len(data)')
-        packet = Packet(len(data) + 3)
-        packet[0: 3] = Packet([index, cnt, size])
-        packet[3:] = data
-        self.adapter.reset_input_buffer()
-        self.adapter.sendCommandNG(PM3CMD['HF_MIFARE_EML_MEMSET'], packet)
-
-    def mf_eget(self, index):
         self.adapter.reset_input_buffer()
         self.adapter.sendCommandNG(
-            PM3CMD['HF_MIFARE_EML_MEMGET'], Packet([index, 1]))
+            PM3CMD['HF_MIFARE_EML_MEMSET'], Packet([blockNo, cnt, size]) + data)
+
+    def mf_eget(self, blockNo):
+        '''
+        @see https://github.com/RfidResearchGroup/proxmark3/blob/master/client/src/mifare/mifarehost.c#L832
+        '''
+        self.adapter.reset_input_buffer()
+        self.adapter.sendCommandNG(
+            PM3CMD['HF_MIFARE_EML_MEMGET'], Packet([blockNo, 1]))
         resp = self.adapter.waitRespTimeout(PM3CMD['HF_MIFARE_EML_MEMGET'])
         if resp.status:
-            raise RuntimeError('Failed to read block from eml')
+            raise Exception('Failed to read block from eml')
         return resp.data
 
     def mf_sim(

@@ -73,5 +73,5 @@ if __name__ == "__main__":
     eml = re.sub(r'[^0-9A-Fa-f]', '', re.sub(r'-', '0', eml))
     eml = proxmark3.Packet.fromhex(eml)
     for i in range(64):
-        pm3.mf_eset(eml.subarray((i << 4), (i << 4) + 16), i)
+        pm3.mf_eset(eml[(i << 4): (i << 4) + 16], i)
     pm3.mf_sim('1k')
