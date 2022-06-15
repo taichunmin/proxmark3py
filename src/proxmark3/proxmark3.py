@@ -21,7 +21,9 @@ class Packet(bytearray):
     '''A wrapper class of bytearray with customized methods'''
 
     def __str__(self):
-        '''String representation of Packet'''
+        return self.__repr__()
+
+    def __repr__(self):
         return '{name}(len={len}): {dump}'.format(name=self.__class__.__name__, len=len(self), dump=' '.join(re.findall(r'.{2}', self.hex())))
 
     def __add__(self, other):
@@ -241,7 +243,8 @@ class Proxmark3:
         if len(key) != 6:
             raise ValueError('invalid key')
         self.adapter.reset_input_buffer()
-        self.adapter.sendCommandMix(PM3CMD['HF_MIFARE_READSC'], [sectorNo, keyType], key)
+        self.adapter.sendCommandMix(PM3CMD['HF_MIFARE_READSC'], [
+                                    sectorNo, keyType], key)
         resp = self.adapter.waitRespTimeout(PM3CMD['ACK'])
         if not (resp.getArg(0) & 0xff):
             raise Exception('Failed to read block')
